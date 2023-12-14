@@ -30,25 +30,14 @@ CREATE TABLE IF NOT EXISTS etl.flat_hiv_summary_ext_v1 (
     cm_treatment_phase INT(5) DEFAULT NULL,
     date_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
-    -- tb_screen BOOLEAN,
-    -- tb_screening_result INT,
-    -- tb_screening_datetime DATETIME,
-    -- on_ipt BOOLEAN,
-    -- ipt_start_date DATETIME,
-    -- ipt_stop_date DATETIME,
-    -- ipt_completion_date DATETIME,
-    -- on_tb_tx BOOLEAN,
-    -- tb_tx_start_date DATETIME,
-    -- tb_tx_end_date DATETIME,
-    -- tb_tx_stop_date DATETIME,
-    -- pcp_prophylaxis_start_date DATETIME,
-
-    kaposis_sarcoma_start_date DATETIME,
-    kaposis_sarcoma_end_date DATETIME,
-    toxoplasmosis_start_date DATETIME,
-    toxoplasmosis_end_date DATETIME,
-
-    cur_who_stage INT,
+    pcp_tx_stop_date DATETIME,
+    pcp_tx_end_date DATETIME,
+    
+    ks_tx_start_date DATETIME,
+    ks_tx_end_date DATETIME,
+    
+    toxo_tx_start_date DATETIME,
+    toxo_tx_end_date DATETIME,
 
     PRIMARY KEY encounter_id (encounter_id),
     INDEX person_date (person_id , encounter_datetime),
@@ -221,8 +210,8 @@ SELECT CONCAT('Start flat_hiv_summary_ext_0');
                         set @cm_treatment_start_date= null;
                         set @cm_treatment_end_date = null;
 
-                        set @kaposis_sarcoma_start_date = null;
-                        set @kaposis_sarcoma_end_date = null;
+                        set @ks_tx_start_date = null;
+                        set @ks_tx_end_date = null;
                         set @toxoplasmosis_start_date = null;
                         set @toxoplasmosis_end_date = null;
                        
@@ -279,7 +268,8 @@ SELECT CONCAT('Start flat_hiv_summary_ext_summary_1');
 								when @cur_id != @prev_id then @cm_treatment_phase := null
                                 else @cm_treatment_phase:=0
                             end as cm_treatment_phase,
-                             case
+
+                            case
                               when obs regexp "!!12048=" then @cm_result_date :=  replace(replace((substring_index(substring(obs,locate("!!12048=",obs)),@sep,1)),"!!12048=",""),"!!","")
 								when obs regexp "!!1277=1256!!" and @cm_treatment_start_date is null then @cm_treatment_start_date:= encounter_datetime
 								when obs regexp "!!1277=(1107|1260)" then @cm_treatment_start_date:= null
@@ -295,20 +285,28 @@ SELECT CONCAT('Start flat_hiv_summary_ext_summary_1');
                                 when @cur_id != @prev_id then @cm_treatment_end_date := null
                                 else @cm_treatment_end_date
                             end as cm_treatment_end_date,
+                            
+                            case
+								when obs regexp "!!12098=1260!!"  then @pcp_tx_stop_date:= encounter_datetime
+								when obs regexp "!!1261=1260!!" then @pcp_tx_stop_date:= encounter_datetime
+                                when obs regexp "!!12098=1260!!" then @pcp_tx_stop_date:= encounter_datetime
+                                when @cur_id != @prev_id then @pcp_tx_stop_date:= null
+                                else @pcp_tx_stop_date
+                            end as pcp_tx_stop_date,
 
                             case
-                                when obs (regexp "!!12100=1256!!") then @kaposis_sarcoma_start_date :=  encounter_datetime
-                                when @cur_id = @prev_id then @kaposis_sarcoma_start_date
-                                when @cur_id != @prev_id then @kaposis_sarcoma_start_date := null
+                                when obs (regexp "!!12100=1256!!") then @ks_tx_start_date :=  encounter_datetime
+                                when @cur_id = @prev_id then @ks_tx_start_date
+                                when @cur_id != @prev_id then @ks_tx_start_date := null
                                 else @cm_treatment_end_date
-                            end as kaposis_sarcoma_start_date,
+                            end as ks_tx_start_date,
 
                             case
-                                when obs (regexp "!!12100=1260!!") then @kaposis_sarcoma_end_date :=  encounter_datetime
-                                when @cur_id = @prev_id then @kaposis_sarcoma_end_date
-                                when @cur_id != @prev_id then @kaposis_sarcoma_end_date := null
-                                else @kaposis_sarcoma_end_date
-                            end as kaposis_sarcoma_end_date,
+                                when obs (regexp "!!12100=1260!!") then @ks_tx_end_date :=  encounter_datetime
+                                when @cur_id = @prev_id then @ks_tx_end_date
+                                when @cur_id != @prev_id then @ks_tx_end_date := null
+                                else @ks_tx_end_date
+                            end as ks_tx_end_date,
 
                             case
                                 when obs (regexp "!!12099=1256!!") then @toxoplasmosis_start_date :=  encounter_datetime
@@ -349,26 +347,12 @@ SELECT CONCAT('Start flat_hiv_summary_ext_summary_1');
                             t1.cm_treatment_end_date,
                             t1.cm_treatment_phase ,
                             t1.date_created,
-                            
-                            -- t2.tb_screen,
-                            -- t2.tb_screening_result,
-                            -- t2.tb_screening_datetime,
-                            -- t2.on_ipt,
-                            -- t2.ipt_start_date,
-                            -- t2.ipt_stop_date,
-                            -- t2.ipt_completion_date,
-                            -- t2.on_tb_tx,
-                            -- t2.tb_tx_start_date,
-                            -- t2.tb_tx_end_date,
-                            -- t2.tb_tx_stop_date,
-                            -- t2.pcp_prophylaxis_start_date,
 
-                            t1.kaposis_sarcoma_start_date,
-                            t1.kaposis_sarcoma_end_date,
+                            t1.ks_tx_start_date,
+                            t1.ks_tx_end_date,
+
                             t1.toxoplasmosis_start_date,
                             t1.toxoplasmosis_end_date
-
-                            -- t2.cur_who_stage,
 
                             from flat_hiv_summary_ext_summary_1 t1
                         );
@@ -403,8 +387,8 @@ SELECT @total_rows_written;
                             t1.cm_treatment_phase ,
                             t1.date_created,
 
-                            t1.kaposis_sarcoma_start_date,
-                            t1.kaposis_sarcoma_end_date,
+                            t1.ks_tx_start_date,
+                            t1.ks_tx_end_date,
                             t1.toxoplasmosis_start_date,
                             t1.toxoplasmosis_end_date
                         from flat_hiv_summary_ext_summary_2 t1
