@@ -31,7 +31,8 @@ BEGIN
 
 				cur_who_stage int,
 
-				last_cd4_count double,
+				reason_for_arv_init_delay int,
+
 				last_cd4_date datetime,
 				last_cd4_percentage double,
 				cd4_resulted double,
@@ -182,8 +183,10 @@ SET @dyn_sql=CONCAT('delete t1 from ahd_monthly_report_dataset_v1_2 t1 join ',@q
 						t1.encounter_date,
 						t1.location_id,
 
-						t1.cm_test,
-						t1.cm_result,
+						t2.cur_who_stage,
+
+						t1.cm_test as crag_tested,
+						t1.cm_result as cm_test_status,
 						t1.cm_result_date,
 						t1.cm_treatment_start_date,
 						t1.on_cm_treatment,
@@ -206,9 +209,10 @@ SET @dyn_sql=CONCAT('delete t1 from ahd_monthly_report_dataset_v1_2 t1 join ',@q
 						t2.cd4_percent_1_date,
 						t2.cd4_percent_2,
 						t2.cd4_percent_2_date,
+						t1.cd4_justification,
 						
-						t2.tb_screen,
-						t2.tb_screening_result,
+						t2.tb_screen as tb_screened,
+						t2.tb_screening_result as tb_status,
 						t2.tb_screening_datetime,
 						t2.on_ipt,
 						t2.ipt_start_date,
@@ -263,10 +267,43 @@ SET @dyn_sql=CONCAT('delete t1 from ahd_monthly_report_dataset_v1_2 t1 join ',@q
 					if(pcp_tx_end_date between date_format(endDate,"%Y-%m-01")  and endDate,1,0) as ended_pcp_tx_this_month,
                     if(pcp_tx_stop_date between date_format(endDate,"%Y-%m-01")  and endDate,1,0) as as stopped_pcp_tx_this_month,
 					
-					--- toxo, and crypto tobe added
-					from ahd_monthly_report_dataset_2
+					if(ks_tx_start_date between date_format(endDate,"%Y-%m-01")  and endDate,1,0) as started_ks_tx_this_month,
+					if(ks_tx_end_date between date_format(endDate,"%Y-%m-01")  and endDate,1,0) as ended_ks_tx_this_month,
+                    null as stopped_ks_tx_this_month,
+
+
+					if(toxo_tx_start_date between date_format(endDate,"%Y-%m-01")  and endDate,1,0) as started_toxo_tx_this_month,
+					if(toxo_tx_end_date between date_format(endDate,"%Y-%m-01")  and endDate,1,0) as ended_toxo_tx_this_month,
+                    null as stopped_toxo_tx_this_month,
+					
+					if((cd4_resulted is not null), 1, 0) as has_cd4_result,
+
+					case
+						when ((on_cm_tx = 1) and (ABS(TIMESTAMPDIFF(MONTH, NOW(), cm_treatment_start_date))) = 6) then  1
+						else 0
+					end as on_cm_tx_for_6mon_plus,
+
+					case
+						when ((cd4_resulted is not null) and (ABS(TIMESTAMPDIFF(MONTH, NOW(), cm_treatment_start_date))) = 6) then  1
+						else 0
+					end as cd4_test_done_atmon6,
+
+					case
+						when ((on_cm_tx = 1) and (ABS(TIMESTAMPDIFF(MONTH, NOW(), cm_treatment_start_date))) =12) then  1
+						else 0
+					end as on_cm_tx_for_12mon_plus,
+
+					case
+						when ((cd4_resulted is not null) and (ABS(TIMESTAMPDIFF(MONTH, NOW(), cm_treatment_start_date))) = 12) then  1
+						else 0
+					end as cd4_test_done_atmon12,
+
+					from ahd_monthly_report_dataset_1
 					order by person_id, endDate desc
 				);
+
+				alter table ahd_monthly_report_dataset_2 drop column prev_id, cur_id;
+
 
 				#delete from @queue_table where person_id in (select person_id from ahd_monthly_report_dataset_build_queue__0);
 				SET @dyn_sql=CONCAT('delete t1 from ',@queue_table,' t1 join ahd_monthly_report_dataset_build_queue__0 t2 using (person_id);'); 

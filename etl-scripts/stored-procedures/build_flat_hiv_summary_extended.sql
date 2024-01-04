@@ -39,6 +39,10 @@ CREATE TABLE IF NOT EXISTS etl.flat_hiv_summary_ext_v1 (
     toxo_tx_start_date DATETIME,
     toxo_tx_end_date DATETIME,
 
+    cd4_justification INT,
+
+    reason_for_arv_init_delay INT,
+
     PRIMARY KEY encounter_id (encounter_id),
     INDEX person_date (person_id , encounter_datetime),
     INDEX person_location (person_id , location_id),
@@ -295,32 +299,35 @@ SELECT CONCAT('Start flat_hiv_summary_ext_summary_1');
                             end as pcp_tx_stop_date,
 
                             case
-                                when obs (regexp "!!12100=1256!!") then @ks_tx_start_date :=  encounter_datetime
+                                when (obs regexp "!!12100=1256!!") then @ks_tx_start_date :=  encounter_datetime
                                 when @cur_id = @prev_id then @ks_tx_start_date
                                 when @cur_id != @prev_id then @ks_tx_start_date := null
                                 else @cm_treatment_end_date
                             end as ks_tx_start_date,
 
                             case
-                                when obs (regexp "!!12100=1260!!") then @ks_tx_end_date :=  encounter_datetime
+                                when (obs regexp "!!12100=1260!!") then @ks_tx_end_date :=  encounter_datetime
                                 when @cur_id = @prev_id then @ks_tx_end_date
                                 when @cur_id != @prev_id then @ks_tx_end_date := null
                                 else @ks_tx_end_date
                             end as ks_tx_end_date,
 
                             case
-                                when obs (regexp "!!12099=1256!!") then @toxoplasmosis_start_date :=  encounter_datetime
-                                when @cur_id = @prev_id then @toxoplasmosis_start_date
+                                when (obs regexp "!!12099=1256!!") then @toxoplasmosis_start_date :=  encounter_datetime
+                                when @cur_id = @jprev_id then @toxoplasmosis_start_date
                                 when @cur_id != @prev_id then @toxoplasmosis_start_date := null
                                 else @toxoplasmosis_start_date
                             end as toxoplasmosis_start_date,
 
                             case
-                                when obs (regexp "!!12100=1260!!") then @toxoplasmosis_end_date :=  encounter_datetime
+                                when (obs regexp "!!12100=1260!!") then @toxoplasmosis_end_date :=  encounter_datetime
                                 when @cur_id = @prev_id then @toxoplasmosis_end_date
                                 when @cur_id != @prev_id then @toxoplasmosis_end_date := null
                                 else @toxoplasmosis_end_date
-                            end as toxoplasmosis_end_date
+                            end as toxoplasmosis_end_date,
+
+                            etl.GetValues(obs, 12100) as cd4_justification,
+                            etl.GetValues(obs, 1505) as reason_for_arv_init_delay,
                             
                            
                            
