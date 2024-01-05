@@ -12,8 +12,6 @@ BEGIN
 			set @lab_encounter_type = 99999;
 			set @death_encounter_type = 31;
             
-
-            #drop table if exists ahd_monthly_report_dataset;
            create table if not exists ahd_monthly_report_dataset (
 				date_created timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
                 elastic_id bigint,
@@ -100,15 +98,12 @@ BEGIN
 			if (query_type = "build") then
 					select "BUILDING.......................";
 					set @queue_table = concat("ahd_monthly_report_dataset_build_queue_",queue_number);                    
-#set @queue_table = concat("ahd_monthly_report_dataset_build_queue_1");                    				
-					#create  table if not exists @queue_table (person_id int, primary key (person_id));
-					#SET @dyn_sql=CONCAT('Create table if not exists ',@queue_table,' (select * from ahd_monthly_report_dataset_build_queue limit 1000);'); 
+                  				
 					SET @dyn_sql=CONCAT('Create table if not exists ',@queue_table,'(person_id int primary key) (select * from ahd_monthly_report_dataset_build_queue limit ', queue_size, ');'); 
 					PREPARE s1 from @dyn_sql; 
 					EXECUTE s1; 
 					DEALLOCATE PREPARE s1;
                     
-                    			#delete t1 from ahd_monthly_report_dataset_build_queue t1 join @queue_table t2 using (person_id)
 					SET @dyn_sql=CONCAT('delete t1 from ahd_monthly_report_dataset_build_queue t1 join ',@queue_table, ' t2 using (person_id)'); 
 					PREPARE s1 from @dyn_sql; 
 					EXECUTE s1; 
@@ -141,8 +136,7 @@ BEGIN
 			DEALLOCATE PREPARE s1;  
             
             
-SET @dyn_sql=CONCAT('delete t1 from ahd_monthly_report_dataset_v1_2 t1 join ',@queue_table,' t2 using (person_id);'); 
-#            SET @dyn_sql=CONCAT('delete t1 from ahd_monthly_report_dataset t1 join ',@queue_table,' t2 using (person_id);'); 
+			SET @dyn_sql=CONCAT('delete t1 from ahd_monthly_report_dataset t1 join ',@queue_table,' t2 using (person_id);'); 
 			PREPARE s1 from @dyn_sql; 
 			EXECUTE s1; 
 			DEALLOCATE PREPARE s1;  
@@ -158,7 +152,6 @@ SET @dyn_sql=CONCAT('delete t1 from ahd_monthly_report_dataset_v1_2 t1 join ',@q
 				drop temporary table if exists ahd_monthly_report_dataset_build_queue__0;
                 create temporary table ahd_monthly_report_dataset_build_queue__0 (person_id int primary key);                
 
-#SET @dyn_sql=CONCAT('insert into ahd_monthly_report_dataset_build_queue__0 (select * from ahd_monthly_report_dataset_build_queue_1 limit 100);'); 
                 SET @dyn_sql=CONCAT('insert into ahd_monthly_report_dataset_build_queue__0 (select * from ',@queue_table,' limit ',cycle_size,');'); 
 				PREPARE s1 from @dyn_sql; 
 				EXECUTE s1; 
@@ -304,38 +297,93 @@ SET @dyn_sql=CONCAT('delete t1 from ahd_monthly_report_dataset_v1_2 t1 join ',@q
 
 				alter table ahd_monthly_report_dataset_2 drop column prev_id, cur_id;
 
+				-- 4) write the data to the destination report dataset table
+				SET @dyn_sql=CONCAT(
+					'replace into ahd_monthly_report_dataset(
+						elastic_id,
+						endDate,
+						encounter_id,
+						person_id,
+						person_uuid,
+						birthdate,
+						age,
+						gender,
+						encounter_date,
+						location_id,
+						last_cd4_count,
+						cur_who_stage,
+						reason_for_arv_init_delay,
+						last_cd4_date,
+						last_cd4_percentage,
+						cd4_resulted,
+						cd4_resulted_date,
+						on_cm_tx,
+						started_cm_tx_this_month,
+						stopped_cm_tx_this_month,
+						ended_cm_tx_this_month,
+						started_tb_tx_this_month,
+						stopped_tb_tx_this_month,
+						ended_tb_tx_this_month,
+						on_pcp_tx,
+						started_pcp_tx_this_month,
+						stopped_pcp_tx_this_month,
+						ended_pcp_tx_this_month,
+						on_toxo_tx,
+						started_toxo_tx_this_month,
+						stopped_toxo_tx_this_month,
+						ended_toxo_tx_this_month,
+						on_ks_tx,
+						started_ks_tx_this_month,
+						stopped_ks_tx_this_month,
+						ended_ks_tx_this_month,
+						reason_for_cd4_test,
+						tb_screened,
+						tb_status,
+						is_art_init_delayed,
+						crag_tested,
+						cm_test_status,
+						on_cm_tx_for_6mon_plus,
+						cd4_test_done_atmon6,
+						on_cm_tx_for_12mon_plus,
+						cd4_test_done_atmon12,
+						toxo_dx,
+						toxo_tx,
+						pcp_dx,
+						pcp_tx,
+						ks_dx,
+						ks_tx,
+					from ahd_monthly_report_dataset_2 t1
+					join amrs.location t2 using (location_id)
+					)'
+				);
 
-				#delete from @queue_table where person_id in (select person_id from ahd_monthly_report_dataset_build_queue__0);
+				PREPARE s1 from @dyn_sql; 
+				EXECUTE s1; 
+				DEALLOCATE PREPARE s1;  
+
 				SET @dyn_sql=CONCAT('delete t1 from ',@queue_table,' t1 join ahd_monthly_report_dataset_build_queue__0 t2 using (person_id);'); 
 				PREPARE s1 from @dyn_sql; 
 				EXECUTE s1; 
 				DEALLOCATE PREPARE s1;  
-				
-				#select @person_ids_count := (select count(*) from @queue_table);                        
+				                       
 				SET @dyn_sql=CONCAT('select count(*) into @person_ids_count from ',@queue_table,';'); 
 				PREPARE s1 from @dyn_sql; 
 				EXECUTE s1; 
 				DEALLOCATE PREPARE s1;  
                 
-                #select @person_ids_count as num_remaining;
-                
-				set @cycle_length = timestampdiff(second,@loop_start_time,now());
-				#select concat('Cycle time: ',@cycle_length,' seconds');                    
+				set @cycle_length = timestampdiff(second,@loop_start_time,now());                    
 				set @total_time = @total_time + @cycle_length;
 				set @cycle_number = @cycle_number + 1;
 				
-				#select ceil(@person_ids_count / cycle_size) as remaining_cycles;
 				set @remaining_time = ceil((@total_time / @cycle_number) * ceil(@person_ids_count / cycle_size) / 60);
-				#select concat("Estimated time remaining: ", @remaining_time,' minutes');
                 
-#                select count(*) into @num_in_hmrd from ahd_monthly_report_dataset_v1_2;
+                select count(*) into @num_in_hmrd from ahd_monthly_report_dataset;
                 
                 select @num_in_hmrd as num_in_hmrd,
 					@person_ids_count as num_remaining, 
 					@cycle_length as 'Cycle time (s)', 
                     ceil(@person_ids_count / cycle_size) as remaining_cycles, 
                     @remaining_time as 'Est time remaining (min)';
-
 
 			end while;
 
@@ -347,7 +395,6 @@ SET @dyn_sql=CONCAT('delete t1 from ahd_monthly_report_dataset_v1_2 t1 join ',@q
 			end if;            
 
 			set @end = now();
-            -- not sure why we need last date_created, I've replaced this with @start
   			insert into etl.flat_log values (@start,@last_date_created,@table_version,timestampdiff(second,@start,@end));
 			select concat(@table_version," : Time to complete: ",timestampdiff(minute, @start, @end)," minutes");
 

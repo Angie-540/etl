@@ -2,7 +2,7 @@ CREATE DEFINER=`fkamau`@`%` PROCEDURE `build_flat_hiv_summary_extended`(IN query
                                                                         IN queue_size int, IN cycle_size int,
                                                                         IN log tinyint(1))
 BEGIN
-                     SET @primary_table := "flat_hiv_summary_ext_v1";
+                     SET @primary_table := "flat_hiv_summary_ext";
                     set @query_type = query_type;
                     set @queue_table = "";
                     set @total_rows_written = 0;
@@ -15,7 +15,7 @@ BEGIN
 
                     
                     
-CREATE TABLE IF NOT EXISTS etl.flat_hiv_summary_ext_v1 (
+CREATE TABLE IF NOT EXISTS etl.flat_hiv_summary_ext (
     person_id INT,
     encounter_id INT,
     location_id INT,
@@ -204,7 +204,7 @@ SELECT CONCAT('Start flat_hiv_summary_ext_0');
                         set @prev_id = -1;
                         set @cur_id = -1;
                         set @cur_location = null;
-					SET @sep := '##';
+					    SET @sep := '##';
                        
                         set @cm_test = null;
                         set @cm_result = null;
@@ -223,7 +223,7 @@ SELECT CONCAT('Start flat_hiv_summary_ext_0');
 
                         
                         
-SELECT CONCAT('Start flat_hiv_summary_ext_summary_1');
+                        SELECT CONCAT('Start flat_hiv_summary_ext_summary_1');
 
                         drop temporary table if exists flat_hiv_summary_ext_summary_1;
                         create temporary table flat_hiv_summary_ext_summary_1 (index encounter_id (encounter_id))
@@ -366,15 +366,12 @@ SELECT CONCAT('Start flat_hiv_summary_ext_summary_1');
 
 
 
-SELECT 
-    COUNT(*)
-INTO @new_encounter_rows FROM
-    flat_hiv_summary_ext_summary_1;
-                    
-SELECT @new_encounter_rows;                    
+                    SELECT COUNT(*) INTO @new_encounter_rows FROM flat_hiv_summary_ext_summary_1;
+                                        
+                    SELECT @new_encounter_rows;                    
                     set @total_rows_written = @total_rows_written + @new_encounter_rows;
-SELECT @total_rows_written;
-    
+                    SELECT @total_rows_written;
+                        
                    -- SHOW COLUMNS FROM @write_table;
                     
                     SET @dyn_sql=CONCAT('replace into ',@write_table,                                              
@@ -432,11 +429,11 @@ SELECT @total_rows_written;
                     set @remaining_time = ceil((@total_time / @cycle_number) * ceil(@person_ids_count / cycle_size) / 60);
                     
 
-SELECT 
-    @person_ids_count AS 'persons remaining',
-    @cycle_length AS 'Cycle time (s)',
-    CEIL(@person_ids_count / cycle_size) AS remaining_cycles,
-    @remaining_time AS 'Est time remaining (min)';
+                    SELECT 
+                        @person_ids_count AS 'persons remaining',
+                        @cycle_length AS 'Cycle time (s)',
+                        CEIL(@person_ids_count / cycle_size) AS remaining_cycles,
+                        @remaining_time AS 'Est time remaining (min)';
 
                  end while;
                  
@@ -453,12 +450,8 @@ SELECT
                         DEALLOCATE PREPARE s1;
                                                 
                         set @start_write = now();
-SELECT 
-    CONCAT(@start_write,
-            ' : Writing ',
-            @total_rows_to_write,
-            ' to ',
-            @primary_table);
+
+                SELECT CONCAT(@start_write,' : Writing ',@total_rows_to_write,' to ',@primary_table);
 
                         SET @dyn_sql=CONCAT('replace into ', @primary_table,
                             '(select * from ',@write_table,');');
@@ -468,11 +461,11 @@ SELECT
                         
                         set @finish_write = now();
                         set @time_to_write = timestampdiff(second,@start_write,@finish_write);
-SELECT 
-    CONCAT(@finish_write,
-            ' : Completed writing rows. Time to write to primary table: ',
-            @time_to_write,
-            ' seconds ');                        
+                SELECT 
+                    CONCAT(@finish_write,
+                            ' : Completed writing rows. Time to write to primary table: ',
+                            @time_to_write,
+                            ' seconds ');                        
                         
                         SET @dyn_sql=CONCAT('drop table ',@write_table,';'); 
                         PREPARE s1 from @dyn_sql; 
@@ -484,19 +477,19 @@ SELECT
                 
                                     
                 set @ave_cycle_length = ceil(@total_time/@cycle_number);
-SELECT 
-    CONCAT('Average Cycle Length: ',
-            @ave_cycle_length,
-            ' second(s)');
+                SELECT 
+                    CONCAT('Average Cycle Length: ',
+                            @ave_cycle_length,
+                            ' second(s)');
                 
                  set @end = now();
                  if (log) then
                  	insert into etl.flat_log values (@start,@last_date_created,@table_version,timestampdiff(second,@start,@end));
                     end if;
-SELECT 
-    CONCAT(@table_version,
-            ' : Time to complete: ',
-            TIMESTAMPDIFF(MINUTE, @start, @end),
-            ' minutes');
+                SELECT 
+                    CONCAT(@table_version,
+                            ' : Time to complete: ',
+                            TIMESTAMPDIFF(MINUTE, @start, @end),
+                            ' minutes');
 
         END
