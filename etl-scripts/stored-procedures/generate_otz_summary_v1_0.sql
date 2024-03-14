@@ -1,12 +1,12 @@
 DELIMITER $$
-CREATE PROCEDURE `generate_otz_summary_v1_0`(IN query_type varchar(50), IN queue_number int, IN queue_size int, IN cycle_size int)
+CREATE PROCEDURE `generate_flat_otz_summary_v1_0`(IN query_type varchar(50), IN queue_number int, IN queue_size int, IN cycle_size int)
 BEGIN
-                    set @primary_table := "otz_summary";
+                    set @primary_table := "flat_otz_summary";
                     set @total_rows_written = 0;
                     set @query_type = query_type;
                     
                     set @start = now();
-                    set @table_version := "otz_summary_v1.0";
+                    set @table_version := "flat_otz_summary_v1.0";
 
                     set session sort_buffer_size=512000000;
 
@@ -20,29 +20,26 @@ SELECT 'Initializing variables successfull ...';
 
                     
                     
-CREATE TABLE IF NOT EXISTS otz_summary (
+CREATE TABLE IF NOT EXISTS flat_otz_summary (
     date_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     person_id INT,
     uuid VARCHAR(100),
     gender TEXT,
     birth_date DATE,
-    death_date DATE,
-    patient_care_status INT,
-    rtc_date DATETIME,
-    prev_rtc_date DATETIME,
     visit_id INT,
     visit_type INT,
     encounter_id INT,
     encounter_datetime DATETIME,
     encounter_type INT,
-    date_enrolled DATE,
-    age_at_enrollment INT, 
-    art_start_date DATE,
+    date_enrolled_to_otz DATE,
+    age_at_otz_enrollment INT, 
+    previously_enrolled_to_otz VARCHAR,
+    original_art_start_date DATE,
     original_art_regimen VARCHAR,
-    most_current_vl_results VARCHAR,
-    date_vl_done DATE,
-    most_current_art_regiment VARCHAR,
-    date_started_current_art_regimen VARCHAR,
+    vl_result_at_otz_enrollment VARCHAR,
+    vl_result_date_at_otz_enrollment DATE,
+    art_regimen_at_otz_enrollment VARCHAR,
+    art_regimen_line_at_otz_enrollment VARCHAR,
     first_regimen_switch VARCHAR,
     first_regimen_switch_date DATE,
     first_regimen_switch_reason VARCHAR,
@@ -56,31 +53,28 @@ CREATE TABLE IF NOT EXISTS otz_summary (
     fourth_regimen_switch_date DATE,
     fourth_regimen_switch_reason VARCHAR,
     vl_result_post_otz_enrollment VARCHAR,
-    vl_date_post_otz_enrollment DATE,
-    ltfu VARCHAR,
-    ltfu_date DATE,
-    opt_out VARCHAR,
-    opt_out_date DATE,
-    transition_adult_care VARCHAR,
-    transition_adult_care DATE,
-    otz_modules_completion_tracker BOOLEAN,
-    remarks VARCHAR,
+    vl__result_date_post_otz_enrollment DATE,
+    otz_orientation VARCHAR,
+    otz_treatment_literacy VARCHAR,
+    otz_participation VARCHAR,
+    otz_peer_mentorship VARCHAR,
+    otz_leadership VARCHAR,
+    otz_positive_health_dignity_prevention VARCHAR,
+    otz_future_decison_making VARCHAR,
+    otz_transition_adult_care VARCHAR,
+    discontinue_otz_reason VARCHAR,
+    discontinue_otz_date DATETIME,
+    clinical_remarks VARCHAR,
     is_clinical_encounter INT,
     location_id INT,
-    clinic VARCHAR(100),
     enrollment_location_id INT,
-    transfer_in TINYINT,
-    transfer_in_location_id INT,
-    transfer_in_date DATETIME,
-    transfer_out TINYINT,
-    transfer_out_location_id INT,
-    transfer_out_date DATETIME,
     vl_resulted INT,
     vl_resulted_date DATETIME,
     vl_1 INT,
     vl_1_date DATETIME,
     vl_2 INT,
     vl_2_date DATETIME,
+    vl_1_date_within_6months INT,
     vl_order_date DATETIME,
     prev_arv_meds VARCHAR(500),
     cur_arv_meds VARCHAR(500),
@@ -103,7 +97,7 @@ SELECT 'created table successfully ...';
 					 create temporary table otz_patients (person_id int NOT NULL) 
                     (
                          select distinct patient_id from amrs.encounter e
-							where e.encounter_type in (115)
+							where e.encounter_type in (284,288,285,283)
                             -- change encounter type to that of otz
                     );
                     
@@ -111,8 +105,8 @@ SELECT 'created table successfully ...';
                                         
                     if(@query_type="build") then
                             select 'BUILDING..........................................';
-                            set @write_table = concat("otz_summary_temp_",queue_number);
-                            set @queue_table = concat("otz_summary_build_queue_",queue_number);                                                                    
+                            set @write_table = concat("flat_otz_summary_temp_",queue_number);
+                            set @queue_table = concat("flat_otz_summary_build_queue_",queue_number);                                                                    
 
                             SET @dyn_sql=CONCAT('Create table if not exists ',@write_table,' like ',@primary_table);
                             PREPARE s1 from @dyn_sql; 
@@ -120,13 +114,13 @@ SELECT 'created table successfully ...';
                             DEALLOCATE PREPARE s1;  
 
                             
-                            SET @dyn_sql=CONCAT('Create table if not exists ',@queue_table,' (select * from otz_summary_build_queue limit ', queue_size, ');'); 
+                            SET @dyn_sql=CONCAT('Create table if not exists ',@queue_table,' (select * from flat_otz_summary_build_queue limit ', queue_size, ');'); 
                             PREPARE s1 from @dyn_sql; 
                             EXECUTE s1; 
                             DEALLOCATE PREPARE s1;  
                             
                             
-                            SET @dyn_sql=CONCAT('delete t1 from otz_summary_build_queue t1 join ',@queue_table, ' t2 using (person_id);'); 
+                            SET @dyn_sql=CONCAT('delete t1 from flat_otz_summary_build_queue t1 join ',@queue_table, ' t2 using (person_id);'); 
                             PREPARE s1 from @dyn_sql; 
                             EXECUTE s1; 
                             DEALLOCATE PREPARE s1;  
@@ -136,9 +130,9 @@ SELECT 'created table successfully ...';
                     
 					if (@query_type="sync") then
                             select 'SYNCING..........................................';
-                            set @write_table = "otz_summary";
-                            set @queue_table = "otz_summary_sync_queue";
-                            CREATE TABLE IF NOT EXISTS otz_summary_sync_queue (
+                            set @write_table = "flat_otz_summary";
+                            set @queue_table = "flat_otz_summary_sync_queue";
+                            CREATE TABLE IF NOT EXISTS flat_otz_summary_sync_queue (
                                 person_id INT PRIMARY KEY
                             );                            
                                                         
@@ -151,48 +145,55 @@ SELECT 'created table successfully ...';
                                 etl.flat_log
                             WHERE
                                 table_name = @table_version;
-
-                            --   confirm if you need to change the last update date  
-							#set @last_update = '2020-11-13 10:00:00';
+ 
+							#set @last_update = '2022-12-12 10:00:00';
                                 
 							SELECT CONCAT('Last Update ..', @last_update);
 
-                            replace into otz_summary_sync_queue
+                            replace into flat_otz_summary_sync_queue
                             (select distinct patient_id
                                 from amrs.encounter e
                                 join otz_patients o using (patient_id)
                                 where e.date_changed > @last_update
                             );
+                            -- adding flat_hiv_summary
+                            -- replace into flat_otz_summary_sync_queue
+                            -- (
+                            --     select distinct person_id
+                            --     from etl.flat_hiv_summary_v15b hv
+                            --     join otz_patients o on (o.patient_id = hv.person_id)
+                            --     where hv.encounter_datetime > @last_update
+                            -- )
 
-                            replace into otz_summary_sync_queue
+                            replace into flat_otz_summary_sync_queue
                             (select distinct ob.person_id
                                 from etl.flat_obs ob
                                 join otz_patients o on (o.patient_id = ob.person_id)
                                 where ob.max_date_created > @last_update
                             );
 
-                            replace into otz_summary_sync_queue
+                            replace into flat_otz_summary_sync_queue
                             (select distinct l.person_id
                                 from etl.flat_lab_obs l
                                 join otz_patients o on (o.patient_id = l.person_id)
                                 where l.max_date_created > @last_update
                             );
 
-                            replace into otz_summary_sync_queue
+                            replace into flat_otz_summary_sync_queue
                             (select distinct ord.person_id
                                 from etl.flat_orders ord
 								join otz_patients o on (o.patient_id = ord.person_id)
                                 where ord.max_date_created > @last_update
                             );
                             
-                            replace into otz_summary_sync_queue
+                            replace into flat_otz_summary_sync_queue
                             (select p.person_id from 
                                 amrs.person p
                                 join otz_patients o on (o.patient_id = p.person_id)
                                 where p.date_voided > @last_update);
 
 
-                            replace into otz_summary_sync_queue
+                            replace into flat_otz_summary_sync_queue
                             (select p2.person_id from 
                                 amrs.person p2
                                 join otz_patients o on (o.patient_id = p2.person_id)
@@ -202,7 +203,7 @@ SELECT 'created table successfully ...';
                       end if;
     
 					SELECT 'Removing test patients ...';
-                    
+                    -- //confirm attribute type
                     SET @dyn_sql=CONCAT('delete t1 FROM ',@queue_table,' t1
                             join amrs.person_attribute t2 using (person_id)
                             where t2.person_attribute_type_id=28 and value="true" and voided=0');
@@ -218,9 +219,6 @@ SELECT 'created table successfully ...';
 
                     SELECT @person_ids_count AS 'num patients to sync';
 
-
-
-                    
                     SET @dyn_sql=CONCAT('delete t1 from ',@primary_table, ' t1 join ',@queue_table,' t2 using (person_id);'); 
                     PREPARE s1 from @dyn_sql; 
                     EXECUTE s1; 
@@ -234,20 +232,17 @@ SELECT 'created table successfully ...';
 
                         set @loop_start_time = now();
                         
+                        drop temporary table if exists flat_otz_summary_build_queue__0;
                         
-                        drop temporary table if exists otz_summary_build_queue__0;
-                        
-
-                        
-                        SET @dyn_sql=CONCAT('create temporary table otz_summary_build_queue__0 (person_id int primary key) (select * from ',@queue_table,' limit ',cycle_size,');'); 
+                        SET @dyn_sql=CONCAT('create temporary table flat_otz_summary_build_queue__0 (person_id int primary key) (select * from ',@queue_table,' limit ',cycle_size,');'); 
                         PREPARE s1 from @dyn_sql; 
                         EXECUTE s1; 
                         DEALLOCATE PREPARE s1;
                         
                         
 						SELECT 'creating  otz_summary_0a from flat_obs...';
-                        drop temporary table if exists otz_summary_0a;
-                        create  temporary table otz_summary_0a
+                        drop temporary table if exists flat_otz_summary_0a;
+                        create  temporary table flat_otz_summary_0a
                         (select
                             t1.person_id,
                             t1.visit_id,
@@ -259,17 +254,14 @@ SELECT 'created table successfully ...';
                             l.name as `clinic`,
                             t1.obs,
                             t1.obs_datetimes,
-
-                            
                             case
-                                when t1.encounter_type in (3,4,114,115,154,158,186) then 1
+                                when t1.encounter_type in (1,2,105,106,137,186) then 1
                                 else null
                             end as is_clinical_encounter,
 
                             case
                                 when t1.encounter_type in (116) then 20
-                                when t1.encounter_type in (3,4,9,114,115,154,158,186,214,220) then 10
-                                when t1.encounter_type in (129) then 5 
+                                when t1.encounter_type in (9,114,284,288,285,283,154,158,186) then 10 
                                 else 1
                             end as encounter_type_sort_index,
 
@@ -280,13 +272,13 @@ SELECT 'created table successfully ...';
                                 join amrs.location l using (location_id)
                                 left join etl.flat_orders t2 using(encounter_id)
                                 left join amrs.visit v on (v.visit_id = t1.visit_id)
-								where t1.encounter_type in (21,67,110,111,114,115,116,121,123,154,158,168,186,116,212,214,220)
-								AND NOT obs regexp "!!5303=703!!"
+								where t1.encounter_type in (21,67,110,111,114,116,121,123,154,158,168,186,116,284,288,285,283)
+								
                         );
                         
                         SELECT 'creating  otz_summary_0a from flat_lab_obs...';
 
-                        insert into otz_summary_0a
+                        insert into flat_otz_summary_0a
                         (select
                             t1.person_id,
                             null,
@@ -301,15 +293,15 @@ SELECT 'created table successfully ...';
                             
                             0 as is_clinical_encounter,
                             1 as encounter_type_sort_index,
-                            null
+                            null,
                             from etl.flat_lab_obs t1
                                 join otz_summary_build_queue__0 t0 using (person_id)
 								join otz_patients o on (t1.person_id = o.patient_id)
                         );
 
-                        drop temporary table if exists otz_summary_0;
-                        create temporary table if not exists otz_summary_0(index encounter_id (encounter_id), index person_enc (person_id,encounter_datetime))
-                        (select * from otz_summary_0a
+                        drop temporary table if exists flat_otz_summary_0;
+                        create temporary table if not exists flat_otz_summary_0(index encounter_id (encounter_id), index person_enc (person_id,encounter_datetime))
+                        (select * from flat_otz_summary_0a
                         order by person_id, date(encounter_datetime), encounter_type_sort_index
                         );
 
@@ -323,53 +315,57 @@ SELECT 'created table successfully ...';
                         set @cur_location = null;
                         set @cur_clinic = null;
                         set @enrollment_location_id = null;
-                        set @initial_hiv_dna_pcr_order_date = null;
-                        set @hiv_dna_pcr_resulted := null;
-                        set @initial_pcr_8wks := null;
-                        set @initial_pcr_8wks_12months := null;
-                        set @date_enrolled := null;
-                        set @death_date:= null;
-                        set @patient_care_status := null;
-                        set @age_at_enrollment := null,
-                        set @art_start_date := null,
-                        set @original_art_regimen := null,
-                        set @most_current_vl_results := null,
-                        set @date_vl_done := null,
-                        set @most_current_art_regiment := null,
-                        set @date_started_current_art_regimen := null,
-                        set @first_regimen_switch := null,
-                        set @first_regimen_switch_date := null,
-                        set @first_regimen_switch_reason := null,
-                        set @second_regimen_switch := null,
-                        set @second_regimen_switch_date := null,
-                        set @second_regimen_switch_reason := null,
-                        set @third_regimen_switch := null,
-                        set @third_regimen_switch_date := null,
-                        set @third_regimen_switch_reason := null,
-                        set @fourth_regimen_switch := null,
-                        set @fourth_regimen_switch_date := null,
-                        set @fourth_regimen_switch_reason := null,
-                        set @vl_result_post_otz_enrollment := null,
-                        set @vl_date_post_otz_enrollment := null,
-                        set @ltfu := null,
-                        set @ltfu_date := null,
-                        set @opt_out := null,
-                        set @opt_out_date := null,
-                        set @transition_adult_care := null,
-                        set @transition_adult_care := null,
-                        set @otz_modules_completion_tracker := null,
-                        set @remarks := null,
+
+                        set @date_enrolled_to_otz = null;
+                        set @previously_enrolled_to_otz = null;
+                        set @age_at_otz_enrollment = null,
+                        set @original_art_start_date = null,
+                        set @original_art_regimen  = null,
+                        set @vl_result_at_otz_enrollment = null,
+                        set @vl_result_date_at_otz_enrollment  = null,
+                        set @art_regimen_at_otz_enrollment = null,
+                        set @art_regimen_line_at_otz_enrollment = null,
+
+                        set @first_regimen_switch = null,
+                        set @first_regimen_switch_date = null,
+                        set @first_regimen_switch_reason = null,
+                        set @second_regimen_switch = null,
+                        set @second_regimen_switch_date = null,
+                        set @second_regimen_switch_reason = null,
+                        set @third_regimen_switch = null,
+                        set @third_regimen_switch_date = null,
+                        set @third_regimen_switch_reason = null,
+                        set @fourth_regimen_switch = null,
+                        set @fourth_regimen_switch_date = null,
+                        set @fourth_regimen_switch_reason = null,
+
+                        set @vl_result_post_otz_enrollment = null,
+                        set @vl_date_post_otz_enrollment = null,
+
+                        set @otz_orientation = null,
+                        set @otz_treatment_literacy := null,
+                        set @otz_participation = null,
+                        set @otz_peer_mentorship = null,
+                        set @otz_leadership = null,
+                        set @otz_positive_health_dignity_prevention = null ,
+                        set @otz_future_decison_making = null,
+                        set @otz_transition_adult_care = null,
+
+                        set @discontinue_otz_reason = null,
+                        set @discontinue_otz_date = null,
+                        set @clinical_remarks = null,
 						set @vl_1=null;
                         set @vl_2=null;
                         set @vl_1_date=null;
+                        set @vl_1_date_within_6months = null;
                         set @vl_2_date=null;
                         set @vl_resulted=null;
                         set @vl_resulted_date=null;
                         set @prev_arv_meds = null;
                         set @cur_arv_meds = null;
                         
-                        drop temporary table if exists otz_summary_1;
-                        create temporary table otz_summary_1 (index encounter_id (encounter_id))
+                        drop temporary table if exists flat_otz_summary_1;
+                        create temporary table flat_otz_summary_1 (index encounter_id (encounter_id))
                         (select
                             obs,
                             encounter_type_sort_index,
@@ -379,29 +375,9 @@ SELECT 'created table successfully ...';
                             t1.visit_type,
                             p.uuid,
                             p.gender,
-							case
-                                when p.dead or p.death_date then @death_date := p.death_date
-                                when obs regexp "!!1570=" then @death_date := replace(replace((substring_index(substring(obs,locate("!!1570=",obs)),@sep,1)),"!!1570=",""),"!!","")
-                                when @prev_id != @cur_id or @death_date is null then
-                                    case
-                                        when obs regexp "!!(1734|1573)=" then @death_date := encounter_datetime
-                                        when obs regexp "!!(1733|9082|6206)=159!!" or t1.encounter_type=31 then @death_date := encounter_datetime
-                                        else @death_date := null
-                                    end
-                                else @death_date
-                            end as death_date,
-                            p.birthDate as  birth_date,
-                            case
-                                when @death_date <= encounter_datetime then @patient_care_status := 159
-                                when obs regexp "!!1946=1065!!" then @patient_care_status := 9036
-                                when obs regexp "!!1285=" then @patient_care_status := replace(replace((substring_index(substring(obs,locate("!!1285=",obs)),@sep,1)),"!!1285=",""),"!!","")
-                                when obs regexp "!!1596=" then @patient_care_status := replace(replace((substring_index(substring(obs,locate("!!1596=",obs)),@sep,1)),"!!1596=",""),"!!","")
-                                when obs regexp "!!9082=" then @patient_care_status := replace(replace((substring_index(substring(obs,locate("!!9082=",obs)),@sep,1)),"!!9082=",""),"!!","")
-                                
-                                when t1.encounter_type = @lab_encounter_type and @cur_id != @prev_id then @patient_care_status := null
-                                when t1.encounter_type = @lab_encounter_type and @cur_id = @prev_id then @patient_care_status
-                                else @patient_care_status := 6101
-                            end as patient_care_status,
+                            p.birth_date
+                            p.ccc_number
+                            --added D.O.B and ccc number
                             -- added more indicators
                             
                              case
@@ -419,12 +395,13 @@ SELECT 'created table successfully ...';
                             @cur_encounter_date := date(encounter_datetime) as cur_encounter_date,
                             t1.encounter_datetime,                            
                             t1.encounter_type,
+                            --date enrolled into otz** OTZ ENROLLMENT
                             case
                                when obs regexp "!!1839=" AND obs regexp "!!1839=7850!!" then @date_enrolled:= GetValues(obs,'7013')
                                when obs regexp "!!1839=" AND NOT obs regexp "!!1839=7850!!" AND @date_enrolled is NULL then @date_enrolled := date(encounter_datetime)
                                when NOT obs regexp "!!1839=" AND @date_enrolled IS NULL then @date_enrolled := date(encounter_datetime)
                                else @date_enrolled
-                            end as date_enrolled,
+                            end as date_enrolled_to_otz,
                             t1.is_clinical_encounter,                                                    
                             case
                                 when location_id then @cur_location := location_id
@@ -432,13 +409,114 @@ SELECT 'created table successfully ...';
                                 else null
                             end as location_id,
                             t1.clinic,
-                            -- age at enrollment
+                            --previously enrolled to otz
+                            case 
+                            when obs regexp "10793=1065" and date_enrolled_to_otz is not null then 1
+                            when obs regexp "10793=1066" and date_enrolled_to_otz is null then 0
+                            else previously_enrolled_to_otz
+                            end as previously_enrolled_to_otz,
+                            
+                            -- calculate age at enrollment to otz
+                            case
+                            when date_enrolled_to_otz > birth_date then TIMESTAMPdIFF(YEAR, birth_date, enrollment_date)
+                            else NULL
+                            end as age_at_enrollment,
+
                             -- art start date
                             case
-                            -- art regimen
-                            when obs regexp "10804" then @original_art_regimen := GetValues(obs, )
+                            -- original art regimen
+                            when obs regexp "!!1255=(1107|1260)!!" then @original_art_regimen := null;
+                            when obs regexp "1250=" then @original_art_regimen := normalize_arvs(obs, '1250')
+                            when obs regexp "1088=" then @original_art_regimen := normalize_arvs(obs, '1088')
+                            when obs regexp "2154=" then @original_art_regimen := normalize_arvs(obs, '2154')
+                            when obs regexp "2157="  and not obs regexp "!!2157=1066" then @original_art_regimen := normalize_arvs(obs, '2157')
+                            when @prev_id = @cur_id then @original_art_regimen
+                            else @original_art_regimen := null
+                            end as @original_art_regimen,
 
-                            --
+                            case 
+                            -- most current art regimen
+                            when obs regexp "!!2154=" and not obs regexp "!!2154=1066" then @most_current_art_regiment := normalize_arvs(obs, '2154')
+                            when obs regexp "!!2157=" and @original_art_regimen is null then @most_current_art_regiment := normalize_arvs(obs, '2154')
+                            else @most_current_art_regiment
+                            end as @most_current_art_regiment
+
+                            --date started current art regimen
+                            case
+                            when 
+
+
+                            --regimen switches
+
+
+                            --otz modules completion tracker
+                            -- otz orientation
+                            case 
+                            when obs regexp "!!11032=" and obs regexp "!!11032=1065" then @otz_orientation := 1
+                            when obs regexp "!!11032=" and obs regexp "11032=1066" then @otz_orientation := 0
+                            else @otz_orientation := null
+                            end as otz_orientation,
+
+                            --otz treatment literacy
+                            case 
+                            when obs regexp "!!11037=" and obs regexp "11037=1065" then @otz_treatment_literacy := 1
+                             when obs regexp "!!11037=" and obs regexp "11037=1066" then @otz_treatment_literacy := 0
+                             else @otz_treatment_literacy := null
+                             end as otz_treatment_literacy,
+
+                            --otz participation
+                            case 
+                            when obs regexp "!!11033=" and obs regexp "11033=1065" then @otz_participation := 1
+                            when obs regexp "!!11033=" and obs regexp "11033=1066" then @otz_participation := 0
+                            else @otz_participation := null
+                            end as otz_participation,
+
+                            -- otz peer mentorship
+                             case 
+                            when obs regexp "!!12300=" and obs regexp "12300=1065" then @otz_peer_mentorship := 1
+                            when obs regexp "!!12300=" and obs regexp "12300=1066" then @otz_peer_mentorship := 0
+                            else @otz_peer_mentorship := null
+                            end as otz_peer_mentorship,
+
+                            --otz leadership
+                            case 
+                            when obs regexp "!!11034=" and obs regexp "11034=1065" then @otz_leadership := 1
+                            when obs regexp "!!11034=" and obs regexp "11034=1066" then @otz_leadership := 0
+                            else @otz_leadership := null
+                            end as otz_leadership,
+
+                            --otz positive dignity prevention
+                            case 
+                            when obs regexp "!!12272=" and obs regexp "12272=1065" then @otz_positive_health_dignity_prevention := 1
+                            when obs regexp "!!12272=" and obs regexp "12272=1066" then @otz_positive_health_dignity_prevention := 0
+                            else @otz_positive_health_dignity_prevention := null 
+                            end as otz_positive_health_dignity_prevention,
+
+                            --otz future decision making
+                            case 
+                            when obs regexp "!!11035=" and obs regexp "11035=1065" then @otz_future_decison_making := 1
+                            when obs regexp "!!11035=" and obs regexp "11035=1065" then @otz_future_decison_making := 0
+                            else @otz_future_decison_making := null 
+                            end as otz_future_decison_making,
+
+                            --otz otz_transition_adult_care
+                            case 
+                            when obs regexp "!!9302=" and obs regexp "9302=1065" then @otz_transition_adult_care := 1
+                            when obs regexp "!!9302=" and obs regexp "9302=1065" then @otz_transition_adult_care := 0
+                            else @otz_transition_adult_care := null
+                            end as otz_transition_adult_care,
+
+                            --clinical remarks 9467
+                            case when obs 
+
+
+                            --discontinue otz(transition/attrition)
+                            case 
+                            when obs regexp "!!1596="  then @discontinue_otz := GetValues(obs, '1596')
+                            else @discontinue_otz
+                            end as discontinue_otz
+
+                            
                             CASE
                              WHEN
                                  (@enrollment_location_id IS NULL
@@ -518,7 +596,7 @@ SELECT 'created table successfully ...';
                                 when t1.encounter_type = @lab_encounter_type and obs regexp "!!856=[0-9]" then @vl_resulted := cast(replace(replace((substring_index(substring(obs,locate("!!856=",obs)),@sep,1)),"!!856=",""),"!!","") as unsigned)
                                 when @prev_id = @cur_id and date(encounter_datetime) = @vl_date_resulted then @vl_resulted
                             end as vl_resulted,
-
+                            --most current vl
                             case
                                     when obs regexp "!!856=[0-9]" and t1.encounter_type = @lab_encounter_type then @vl_1:=cast(replace(replace((substring_index(substring(obs,locate("!!856=",obs)),@sep,1)),"!!856=",""),"!!","") as unsigned)
                                     when obs regexp "!!856=[0-9]"
@@ -528,7 +606,7 @@ SELECT 'created table successfully ...';
                                     when @prev_id=@cur_id then @vl_1
                                     else @vl_1:=null
                             end as vl_1,
-
+                            -- date most current vl done
                             case
                                 when obs regexp "!!856=[0-9]" and t1.encounter_type = @lab_encounter_type then @vl_1_date:= encounter_datetime
                                 when obs regexp "!!856=[0-9]"
@@ -538,11 +616,11 @@ SELECT 'created table successfully ...';
                                 when @prev_id=@cur_id then @vl_1_date
                                 else @vl_1_date:=null
                             end as vl_1_date,
+                            -- vl done within 6 months?
+                            case when DATEDIFF(@current_date, @vl_1_date) <= 6 then 1
+                                else 0
+                            end as vl_1_date_within_6months,
 
-
-
-                            
-                            
                             case
                                 when obs regexp "!!1271=856!!" then @vl_order_date := date(encounter_datetime)
                                 when orders regexp "856" then @vl_order_date := date(encounter_datetime)
@@ -561,6 +639,7 @@ SELECT 'created table successfully ...';
                             
                             #2154 : PATIENT REPORTED CURRENT ANTIRETROVIRAL TREATMENT
                             #2157 : PATIENT REPORTED PAST ANTIRETROVIRAL TREATMENT
+                            --most current art regimen
                             case
                                 when obs regexp "!!1255=(1107|1260)!!" then @cur_arv_meds := null
                                 when obs regexp "!!1250=" then @cur_arv_meds := normalize_arvs(obs,'1250')
@@ -577,200 +656,21 @@ SELECT 'created table successfully ...';
                             end as cur_arv_meds,
                    
 
-                        from flat_hei_summary_0 t1
+                        from flat_otz_summary_0 t1
                             join amrs.person p using (person_id)
-                            LEFT JOIN amrs.relationship `r` on (r.person_b = p.person_id AND r.relationship = 2)
-                            LEFT JOIN amrs.person `mother` on (mother.person_id = r.person_a AND mother.gender = 'F')
+                            join etl.flat_hiv_summary_v15b hv where  t1.person_id = hv.person_id
                         );
-                        
-                
-
-                        set @prev_id = null;
-                        set @cur_id = null;
-                        set @prev_encounter_datetime = null;
-                        set @cur_encounter_datetime = null;
-
-                        set @prev_clinical_location_id = null;
-                        set @cur_clinical_location_id = null;
+                                     
 
 
-                        alter table flat_hei_summary_1 drop prev_id, drop cur_id, drop cur_clinical_datetime, drop cur_clinic_rtc_date;
-
-                        drop temporary table if exists flat_hei_summary_2;
-                        create temporary table flat_hei_summary_2
-                        (select *,
-                                   @prev_id := @cur_id as prev_id,
-                            @cur_id := person_id as cur_id,
-
-                            case
-                                when @prev_id = @cur_id then @prev_encounter_datetime := @cur_encounter_datetime
-                                else @prev_encounter_datetime := null
-                            end as next_encounter_datetime_hiv,
-
-                            @cur_encounter_datetime := encounter_datetime as cur_encounter_datetime,
-
-                            case
-                                when @prev_id=@cur_id then @next_encounter_type := @cur_encounter_type
-                                else @next_encounter_type := null
-                            end as next_encounter_type_hiv,
-
-                            @cur_encounter_type := encounter_type as cur_encounter_type,
-
-                            case
-                                when @prev_id = @cur_id then @prev_clinical_datetime := @cur_clinical_datetime
-                                else @prev_clinical_datetime := null
-                            end as next_clinical_datetime_hiv,
-
-                            case
-                                when @prev_id = @cur_id then @prev_clinical_location_id := @cur_clinical_location_id
-                                else @prev_clinical_location_id := null
-                            end as next_clinical_location_id,
-
-                            case
-                                when is_clinical_encounter then @cur_clinical_datetime := encounter_datetime
-                                when @prev_id = @cur_id then @cur_clinical_datetime
-                                else @cur_clinical_datetime := null
-                            end as cur_clinic_datetime,
-
-                            case
-                                when is_clinical_encounter then @cur_clinical_location_id := location_id
-                                when @prev_id = @cur_id then @cur_clinical_location_id
-                                else @cur_clinical_location_id := null
-                            end as cur_clinic_location_id,
-
-                            case
-                                when @prev_id = @cur_id then @prev_clinical_rtc_date := @cur_clinical_rtc_date
-                                else @prev_clinical_rtc_date := null
-                            end as next_clinical_rtc_date_hiv,
-
-                            case
-                                when is_clinical_encounter then @cur_clinical_rtc_date := cur_rtc_date
-                                when @prev_id = @cur_id then @cur_clinical_rtc_date
-                                else @cur_clinical_rtc_date:= null
-                            end as cur_clinical_rtc_date
-
-                            from flat_hei_summary_1
-                            order by person_id, date(encounter_datetime) desc, encounter_type_sort_index desc
-                        );
-
-                        alter table flat_hei_summary_2 drop prev_id, drop cur_id, drop cur_encounter_type, drop cur_encounter_datetime, drop cur_clinical_rtc_date;
-
-
-                        set @prev_id = null;
-                        set @cur_id = null;
-                        set @prev_encounter_type = null;
-                        set @cur_encounter_type = null;
-                        set @next_encounter_type = null;
-                        set @prev_clinical_location_id = null;
-                        set @cur_clinical_location_id = null;
-
-                        drop  temporary table if exists flat_hei_summary_3;
-                        create  temporary table flat_hei_summary_3 (prev_encounter_datetime datetime, prev_encounter_type int, index person_enc (person_id, encounter_datetime desc))
-                        (select
-                            *,
-                            @prev_id := @cur_id as prev_id,
-                            @cur_id := t1.person_id as cur_id,
-                            
-                             case
-                                when @prev_id=@cur_id then @prev_encounter_datetime := @cur_encounter_datetime
-                                else @prev_encounter_datetime := null
-                            end as prev_encounter_datetime_hiv,
-                            
-                            case
-                                when @prev_id = @cur_id then @prev_clinical_location_id := @cur_clinical_location_id
-                                else @prev_clinical_location_id := null
-                            end as prev_clinical_location_id,
-
-
-                            case
-                                when is_clinical_encounter then @cur_clinical_location_id := location_id
-                                when @prev_id = @cur_id then @cur_clinical_location_id
-                                else @cur_clinical_location_id := null
-                            end as cur_clinical_location_id
-
-                            from flat_hei_summary_2 t1
-                            order by person_id, date(encounter_datetime), encounter_type_sort_index
-                        );
+                    SELECT 
+                        COUNT(*)
+                    INTO @new_encounter_rows FROM
+                        flat_otz_summary_4;
                                         
-                        alter table flat_hei_summary_3 drop prev_id, drop cur_id;
-
-                        set @prev_id = null;
-                        set @cur_id = null;
-                        set @transfer_in = null;
-                        set @transfer_in_date = null;
-                        set @transfer_in_location_id = null;
-                        set @transfer_out = null;
-                        set @transfer_out_date = null;
-                        set @transfer_out_location_id = null;
-                        
-                        #Handle transfers
-                
-                        drop temporary table if exists flat_hei_summary_4;
-
-                        create temporary table flat_hei_summary_4 ( index person_enc (person_id, encounter_datetime))
-                        (select
-                            *,
-                            @prev_id := @cur_id as prev_id,
-                            @cur_id := t1.person_id as cur_id,
-                            case
-                                when obs regexp "!!7015=" then @transfer_in := 1
-                                when prev_clinical_location_id != location_id then @transfer_in := 1
-                                else @transfer_in := null
-                            end as transfer_in,
-
-                            case 
-                                when obs regexp "!!7015=" then @transfer_in_date := date(encounter_datetime)
-                                when prev_clinical_location_id != location_id then @transfer_in_date := date(encounter_datetime)
-                                when @cur_id = @prev_id then @transfer_in_date
-                                else @transfer_in_date := null
-                            end transfer_in_date,
-                            
-                            case 
-                                when obs regexp "!!7015=1287" then @transfer_in_location_id := 9999
-                                when prev_clinical_location_id != location_id then @transfer_in_location_id := prev_clinical_location_id
-                                when @cur_id = @prev_id then @transfer_in_location_id
-                                else @transfer_in_location_id := null
-                            end transfer_in_location_id,
-                            
-							case
-                                    when obs regexp "!!1285=" then @transfer_out := 1
-                                    when obs regexp "!!1596=1594!!" then @transfer_out := 1
-                                    when obs regexp "!!9082=(1287|1594|9068|9504|1285)!!" then @transfer_out := 1
-                                    when obs regexp "!!10000=" then @transfer_out := 1
-                                    when next_clinical_location_id != location_id then @transfer_out := 1
-                                    else @transfer_out := null
-                            end as transfer_out,
-
-                            case 
-                                when obs regexp "!!1285=(1287|9068|2050)!!" and next_clinical_datetime_hiv is null then @transfer_out_location_id := 9999
-                                when obs regexp "!!1285=1286!!" and next_clinical_datetime_hiv is null then @transfer_out_location_id := 9998
-                                when obs regexp "!!10000=" then @transfer_out_location_id := 9999
-                                when next_clinical_location_id != location_id then @transfer_out_location_id := next_clinical_location_id
-                                else @transfer_out_location_id := null
-                            end transfer_out_location_id,
-
-                            
-                            case 
-                                when @transfer_out and next_clinical_datetime_hiv is null then @transfer_out_date := date(IF(cur_rtc_date IS NOT NULL,cur_rtc_date,encounter_datetime))
-                                when next_clinical_location_id != location_id then @transfer_out_date := date(next_clinical_datetime_hiv)
-                                else @transfer_out_date := null
-                            end transfer_out_date
-                                                    
-                            
-                          
-                            from flat_hei_summary_3 t1
-                            order by person_id, date(encounter_datetime), encounter_type_sort_index
-                        );
-
-
-SELECT 
-    COUNT(*)
-INTO @new_encounter_rows FROM
-    flat_hei_summary_4;
-                    
-SELECT @new_encounter_rows;                    
-                    set @total_rows_written = @total_rows_written + @new_encounter_rows;
-SELECT @total_rows_written;
+                    SELECT @new_encounter_rows;                    
+                                        set @total_rows_written = @total_rows_written + @new_encounter_rows;
+                    SELECT @total_rows_written;
     
                     
                     
@@ -790,18 +690,36 @@ SELECT @total_rows_written;
                         encounter_datetime,
                         encounter_type,
                         date_enrolled,
-                        is_clinical_encounter,
+                        age_at_enrollment,
+                        date_started_current_art_regimen,
+                        first_regimen_switch,
+                        first_regimen_switch_date,
+                        first_regimen_switch_reason,
+                        second_regimen_switch,
+                        second_regimen_switch_date,
+                        second_regimen_switch_reason
+                        third_regimen_switch,
+                        third_regimen_switch_date,
+                        third_regimen_switch_reason
+                        fourth_regimen_switch,
+                        fourth_regimen_switch_date,
+                        fourth_regimen_switch_reason,
+                        vl_result_post_otz_enrollment,
+                        vl_date_post_otz_enrollment,
+                        otz_orientation,
+                        otz_treatment_literacy,
+                        otz_participation,
+                        otz_peer_mentorship,
+                        otz_leadership,
+                        otz_positive_health_dignity_prevention,
+                        otz_future_decison_making 
+                        otz_transition_adult_care,
+                        discontinue_otz,
+                        clinical_remarks ,
+                        is_clinical_encounte,
                         location_id,
                         clinic,
                         enrollment_location_id,
-                        transfer_in,
-                        transfer_in_location_id,
-                        transfer_in_date,
-                        transfer_out,
-                        transfer_out_location_id,
-                        transfer_out_date,
-                        person_bringing_patient,
-                        hei_outcome,
 						vl_resulted,
                         vl_resulted_date,
                         vl_1,
@@ -811,14 +729,13 @@ SELECT @total_rows_written;
                         vl_order_date,
                         prev_arv_meds,
                         cur_arv_meds,
-                        newborn_arv_meds,
                         prev_clinical_location_id,
 						next_clinical_location_id,
                         prev_encounter_datetime_hiv,
                         next_encounter_datetime_hiv,
                         prev_clinical_datetime_hiv,
 	                    next_clinical_datetime_hiv,
-                        from flat_hei_summary_4 t1)');
+                        from flat_otz_summary_4 t1)');
 
                     PREPARE s1 from @dyn_sql; 
                     EXECUTE s1; 
@@ -827,7 +744,7 @@ SELECT @total_rows_written;
 
                     
 
-                    SET @dyn_sql=CONCAT('delete t1 from ',@queue_table,' t1 join flat_hei_summary_build_queue__0 t2 using (person_id);'); 
+                    SET @dyn_sql=CONCAT('delete t1 from ',@queue_table,' t1 join otz_summary_build_queue__0; t2 using (person_id);'); 
 
                     PREPARE s1 from @dyn_sql; 
                     EXECUTE s1; 
@@ -839,9 +756,7 @@ SELECT @total_rows_written;
                     PREPARE s1 from @dyn_sql; 
                     EXECUTE s1; 
                     DEALLOCATE PREPARE s1;  
-                    
-                    
-
+                                       
                     set @cycle_length = timestampdiff(second,@loop_start_time,now());
                     
                     set @total_time = @total_time + @cycle_length;
@@ -851,11 +766,11 @@ SELECT @total_rows_written;
                     set @remaining_time = ceil((@total_time / @cycle_number) * ceil(@person_ids_count / cycle_size) / 60);
                     
 
-SELECT 
-    @person_ids_count AS 'persons remaining',
-    @cycle_length AS 'Cycle time (s)',
-    CEIL(@person_ids_count / cycle_size) AS remaining_cycles,
-    @remaining_time AS 'Est time remaining (min)';
+            SELECT 
+                @person_ids_count AS 'persons remaining',
+                @cycle_length AS 'Cycle time (s)',
+                CEIL(@person_ids_count / cycle_size) AS remaining_cycles,
+                @remaining_time AS 'Est time remaining (min)';
 
                  end while;
                  
@@ -877,12 +792,12 @@ SELECT
                         PREPARE s1 from @dyn_sql; 
                         EXECUTE s1; 
                         DEALLOCATE PREPARE s1;
-SELECT 
-    CONCAT(@start_write,
-            ' : Writing ',
-            @total_rows_to_write,
-            ' to ',
-            @primary_table);
+            SELECT 
+                CONCAT(@start_write,
+                        ' : Writing ',
+                        @total_rows_to_write,
+                        ' to ',
+                        @primary_table);
 
                         SET @dyn_sql=CONCAT('replace into ', @primary_table,
                             '(select * from ',@write_table,');');
@@ -892,11 +807,11 @@ SELECT
                         
                         set @finish_write = now();
                         set @time_to_write = timestampdiff(second,@start_write,@finish_write);
-SELECT 
-    CONCAT(@finish_write,
-            ' : Completed writing rows. Time to write to primary table: ',
-            @time_to_write,
-            ' seconds ');                        
+        SELECT 
+            CONCAT(@finish_write,
+                    ' : Completed writing rows. Time to write to primary table: ',
+                    @time_to_write,
+                    ' seconds ');                        
                         
                         SET @dyn_sql=CONCAT('drop table ',@write_table,';'); 
                         PREPARE s1 from @dyn_sql; 
