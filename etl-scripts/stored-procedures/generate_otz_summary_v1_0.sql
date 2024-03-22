@@ -1,5 +1,5 @@
 DELIMITER $$
-CREATE PROCEDURE `generate_flat_otz_summary_v1_0`(IN query_type varchar(50), IN queue_number int, IN queue_size int, IN cycle_size int)
+CREATE PROCEDURE `generate_flat_otz_summary`(IN query_type varchar(50), IN queue_number int, IN queue_size int, IN cycle_size int)
 BEGIN
                     set @primary_table := "flat_otz_summary";
                     set @total_rows_written = 0;
@@ -10,9 +10,6 @@ BEGIN
 
                     set session sort_buffer_size=512000000;
 
-                    set @sep = " ## ";
-                    set @lab_encounter_type := 99999;
-                    set @death_encounter_type := 31;
                     set @last_date_created := (select max(max_date_created) from etl.flat_obs);
                     
 SELECT 'Initializing variables successfull ...';
@@ -54,14 +51,14 @@ CREATE TABLE IF NOT EXISTS flat_otz_summary (
     fourth_regimen_switch_reason VARCHAR,
     vl_result_post_otz_enrollment VARCHAR,
     vl__result_date_post_otz_enrollment DATE,
-    otz_orientation VARCHAR,
-    otz_treatment_literacy VARCHAR,
-    otz_participation VARCHAR,
-    otz_peer_mentorship VARCHAR,
-    otz_leadership VARCHAR,
-    otz_positive_health_dignity_prevention VARCHAR,
-    otz_future_decison_making VARCHAR,
-    otz_transition_adult_care VARCHAR,
+    otz_orientation tinyint,
+    otz_treatment_literacy tinyint,
+    otz_participation tinyint,
+    otz_peer_mentorship tinyint,
+    otz_leadership tinyint,
+    otz_positive_health_dignity_prevention tinyint,
+    otz_future_decison_making tinyint,
+    otz_transition_adult_care tinyint,
     discontinue_otz_reason VARCHAR,
     discontinue_otz_date DATETIME,
     clinical_remarks VARCHAR,
@@ -93,13 +90,13 @@ CREATE TABLE IF NOT EXISTS flat_otz_summary (
 
 SELECT 'created table successfully ...';
 
-                    drop temporary table if exists otz_patients;
-					 create temporary table otz_patients (person_id int NOT NULL) 
-                    (
-                         select distinct patient_id from amrs.encounter e
-							where e.encounter_type in (284,288,285,283)
-                            -- change encounter type to that of otz
-                    );
+                    -- drop temporary table if exists otz_patients;
+					--  create temporary table otz_patients (person_id int NOT NULL) 
+                    -- (
+                    --      select distinct patient_id from amrs.encounter e
+					-- 		where e.encounter_type in (284,288,285,283)
+                    --         -- change encounter type to that of otz
+                    -- );
                     
                     
                                         
@@ -295,7 +292,7 @@ SELECT 'created table successfully ...';
                             1 as encounter_type_sort_index,
                             null,
                             from etl.flat_lab_obs t1
-                                join otz_summary_build_queue__0 t0 using (person_id)
+                                join flat_otz_summary_build_queue__0 t0 using (person_id)
 								join otz_patients o on (t1.person_id = o.patient_id)
                         );
 
@@ -375,7 +372,7 @@ SELECT 'created table successfully ...';
                             t1.visit_type,
                             p.uuid,
                             p.gender,
-                            p.birth_date
+                            p.birth_date as birth_date
                             p.ccc_number
                             --added D.O.B and ccc number
                             -- added more indicators
@@ -397,11 +394,13 @@ SELECT 'created table successfully ...';
                             t1.encounter_type,
                             --date enrolled into otz** OTZ ENROLLMENT
                             case
-                               when obs regexp "!!1839=" AND obs regexp "!!1839=7850!!" then @date_enrolled:= GetValues(obs,'7013')
-                               when obs regexp "!!1839=" AND NOT obs regexp "!!1839=7850!!" AND @date_enrolled is NULL then @date_enrolled := date(encounter_datetime)
-                               when NOT obs regexp "!!1839=" AND @date_enrolled IS NULL then @date_enrolled := date(encounter_datetime)
-                               else @date_enrolled
+                            -- 1, date 
+                               when obs regexp "!!10793=1066!!" then @date_enrolled_to_otz:= date(encounter_datetime)
+                               when obs regexp "!!10793=" AND obs regexp "!!10793=1065!!" then @date_enrolled_to_otz := GetValues(obs,'10747')
+                               when NOT obs regexp "!!10793=" AND @date_enrolled_to_otz IS NULL then @date_enrolled_to_otz := date(encounter_datetime)
+                               else @date_enrolled_to_otz
                             end as date_enrolled_to_otz,
+                            
                             t1.is_clinical_encounter,                                                    
                             case
                                 when location_id then @cur_location := location_id
@@ -409,22 +408,72 @@ SELECT 'created table successfully ...';
                                 else null
                             end as location_id,
                             t1.clinic,
-                            --previously enrolled to otz
+
+
+
+                            -- remove this logic below
+                            --previously enrolled to otz and hence modules previosuly covered
                             case 
-                            when obs regexp "10793=1065" and date_enrolled_to_otz is not null then 1
+                            when obs regexp "10793=1065" and date_enrolled_to_otz is not null then 
                             when obs regexp "10793=1066" and date_enrolled_to_otz is null then 0
                             else previously_enrolled_to_otz
                             end as previously_enrolled_to_otz,
+
+
+
+
                             
                             -- calculate age at enrollment to otz
                             case
-                            when date_enrolled_to_otz > birth_date then TIMESTAMPdIFF(YEAR, birth_date, enrollment_date)
+                            when date_enrolled_to_otz > birth_date then TIMESTAMPdIFF(YEAR, birth_date, date_enrolled_to_otz)
                             else NULL
-                            end as age_at_enrollment,
+                            end as age_at_otz_enrollment,
 
-                            -- art start date
+                            -- prev arv meds
+
                             case
-                            -- original art regimen
+						        when @prev_id=@cur_id then @prev_arv_meds := @cur_arv_meds
+						        else @prev_arv_meds := null
+							end as prev_arv_meds,
+
+                            -- current arv meds
+	
+							case
+								when obs regexp "!!1255=(1107|1260)!!" then @cur_arv_meds := null
+								when obs regexp "!!1250=" then @cur_arv_meds :=
+									replace(replace((substring_index(substring(obs,locate("!!1250=",obs)),@sep,ROUND ((LENGTH(obs) - LENGTH( REPLACE ( obs, "!!1250=", "") ) ) / LENGTH("!!1250=") ))),"!!1250=",""),"!!","")
+								when obs regexp "!!1088=" then @cur_arv_meds :=
+									replace(replace((substring_index(substring(obs,locate("!!1088=",obs)),@sep,ROUND ((LENGTH(obs) - LENGTH( REPLACE ( obs, "!!1088=", "") ) ) / LENGTH("!!1088=") ))),"!!1088=",""),"!!","")
+								when obs regexp "!!2154=" then @cur_arv_meds :=
+									replace(replace((substring_index(substring(obs,locate("!!2154=",obs)),@sep,ROUND ((LENGTH(obs) - LENGTH( REPLACE ( obs, "!!2154=", "") ) ) / LENGTH("!!2154=") ))),"!!2154=",""),"!!","")
+								when @prev_id = @cur_id then @cur_arv_meds
+								else @cur_arv_meds:= null
+							end as cur_arv_meds,
+
+                            -- original art start regimen, confirm if column is in flat hiv summary then replace as 
+                            -- hv.arv_first_regimen
+                            case
+								when @original_art_regimen is null and obs regexp "!!2157=" then
+										@original_art_regimen := replace(replace((substring_index(substring(obs,locate("!!2157=",obs)),@sep,ROUND ((LENGTH(obs) - LENGTH( REPLACE ( obs, "!!2157=", "") ) ) / LENGTH("!!2157=") ))),"!!2157=",""),"!!","")
+								when obs regexp "!!7015=" and @original_art_regimen is null then @original_art_regimen := "unknown"
+								when @original_art_regimen is null and @cur_arv_meds is not null then @original_art_regimen := @cur_arv_meds
+								when @prev_id = @cur_id then @original_art_regimen
+								when @prev_id != @cur_id then @original_art_regimen := null
+								else "-1"
+							end as original_art_regimen,
+
+                            --original art regimen start date
+
+                            	case
+								when @original_art_regimen_start_date is null and obs regexp "!!1499=" then @original_art_regimen_start_date := replace(replace((substring_index(substring(obs,locate("!!1499=",obs)),@sep,1)),"!!1499=",""),"!!","")
+								when obs regexp "!!7015=" and @original_art_regimen_start_date is null then @original_art_regimen_start_date := date(t1.encounter_datetime)
+								when @original_art_regimen_start_date is null and @cur_arv_meds is not null then @original_art_regimen_start_date := date(t1.encounter_datetime)
+								when @prev_id = @cur_id then @original_art_regimen_start_date
+								when @prev_id != @cur_id then @original_art_regimen_start_date := null
+								else @original_art_regimen_start_date
+							end as original_art_regimen_start_date,
+                                
+                            -- current art regimen when getting enrolled to otz
                             when obs regexp "!!1255=(1107|1260)!!" then @original_art_regimen := null;
                             when obs regexp "1250=" then @original_art_regimen := normalize_arvs(obs, '1250')
                             when obs regexp "1088=" then @original_art_regimen := normalize_arvs(obs, '1088')
@@ -447,6 +496,8 @@ SELECT 'created table successfully ...';
 
 
                             --regimen switches
+                            case 
+                            when prev_id:=cur_id and date_enrolled_to_otz is not null and prev_arv_meds != cur_arv_meds then first_regimen_switch := 1;
 
 
                             --otz modules completion tracker
@@ -495,14 +546,14 @@ SELECT 'created table successfully ...';
                             --otz future decision making
                             case 
                             when obs regexp "!!11035=" and obs regexp "11035=1065" then @otz_future_decison_making := 1
-                            when obs regexp "!!11035=" and obs regexp "11035=1065" then @otz_future_decison_making := 0
+                            when obs regexp "!!11035=" and obs regexp "11035=1066" then @otz_future_decison_making := 0
                             else @otz_future_decison_making := null 
                             end as otz_future_decison_making,
 
                             --otz otz_transition_adult_care
                             case 
                             when obs regexp "!!9302=" and obs regexp "9302=1065" then @otz_transition_adult_care := 1
-                            when obs regexp "!!9302=" and obs regexp "9302=1065" then @otz_transition_adult_care := 0
+                            when obs regexp "!!9302=" and obs regexp "9302=1066" then @otz_transition_adult_care := 0
                             else @otz_transition_adult_care := null
                             end as otz_transition_adult_care,
 
